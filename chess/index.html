@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Шахматы</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <h1>♟ Шахматы</h1>
+    </header>
+
+    <main class="layout">
+      <section class="board-section">
+        <div class="captured captured-top" id="capturedTop"></div>
+        <div class="board-wrapper">
+          <div class="board" id="board"></div>
+        </div>
+        <div class="captured captured-bottom" id="capturedBottom"></div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-block">
+          <h2>Режим игры</h2>
+          <label class="radio-row">
+            <input type="radio" name="mode" value="pvp" checked>
+            Два игрока
+          </label>
+          <label class="radio-row">
+            <input type="radio" name="mode" value="ai">
+            Против компьютера
+          </label>
+
+          <div id="aiOptions" class="ai-options hidden">
+            <label class="field-row">
+              Играть за:
+              <select id="humanColor">
+                <option value="w">Белые</option>
+                <option value="b">Чёрные</option>
+              </select>
+            </label>
+            <label class="field-row">
+              Сложность:
+              <select id="difficulty">
+                <option value="1">Лёгкая</option>
+                <option value="2" selected>Средняя</option>
+                <option value="3">Сложная</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="panel-block status-block">
+          <div class="turn-indicator" id="turnIndicator">Ход белых</div>
+          <div class="status-message" id="statusMessage"></div>
+        </div>
+
+        <div class="panel-block controls">
+          <button id="newGameBtn">Новая игра</button>
+          <button id="undoBtn">Отменить ход</button>
+          <button id="flipBtn">Перевернуть доску</button>
+        </div>
+
+        <div class="panel-block moves-block">
+          <h2>История ходов</h2>
+          <ol id="moveList" class="move-list"></ol>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div id="promotionModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Выберите фигуру для превращения</h3>
+      <div class="promotion-choices" id="promotionChoices"></div>
+    </div>
+  </div>
+
+  <div id="gameOverModal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="gameOverText"></h3>
+      <button id="gameOverCloseBtn">Закрыть</button>
+    </div>
+  </div>
+
+  <script src="chess.js"></script>
+  <script src="ai.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
