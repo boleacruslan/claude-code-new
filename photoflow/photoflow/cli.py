@@ -293,6 +293,13 @@ def cmd_style_check_raw(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_style_doctor(args: argparse.Namespace) -> int:
+    from .style import doctor
+
+    print(doctor.run(args.raw, args.catalog, args.limit))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="photoflow",
@@ -415,6 +422,14 @@ def build_parser() -> argparse.ArgumentParser:
                            help="verify a single NEF decodes on this machine")
     sc.add_argument("file")
     sc.set_defaults(func=cmd_style_check_raw)
+
+    sd = st_sub.add_parser(
+        "doctor",
+        help="one report on whether RAW and the catalog can be read here")
+    sd.add_argument("--raw", help="any NEF/CR3/ARW file to try decoding")
+    sd.add_argument("--catalog", help="a Lightroom .lrcat to try reading")
+    sd.add_argument("--limit", type=int, default=400)
+    sd.set_defaults(func=cmd_style_doctor)
 
     return parser
 
