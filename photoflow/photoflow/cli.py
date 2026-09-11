@@ -153,6 +153,146 @@ def cmd_retouch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_style_inspect(args: argparse.Namespace) -> int:
+    from .style import inspect as style_inspect
+    from .style import xmp as style_xmp
+
+    if not args.catalog and not args.folder:
+        print("pass --catalog /path/x.lrcat or a folder of XMP sidecars",
+              file=sys.stderr)
+        return 1
+    try:
+        gathered = style_inspect.collect(catalog=args.catalog, folder=args.folder,
+                                         limit=args.limit)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        if args.catalog:
+            try:
+                tables = style_xmp.catalog_tables(args.catalog)
+                print("\ntables present in this catalog:", file=sys.stderr)
+                print("  " + ", ".join(tables), file=sys.stderr)
+            except Exception:
+                pass
+        return 1
+
+    summary = style_inspect.summarise(gathered["rows"])
+    print(style_inspect.render(summary, gathered["source"]))
+    return 0
+
+
+def cmd_style_learn(args: argparse.Namespace) -> int:
+    from .style import inspect as style_inspect
+    from .style import model as style_model
+    from .style import pipeline
+
+    try:
+        gathered = style_inspect.collect(catalog=args.catalog, folder=args.folder,
+                                         limit=args.limit)
+    except (RuntimeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    records, missing = pipeline.resolve_paths(gathered["rows"], args.images_root)
+    print(f"{len(gathered['rows'])} edited frames from {gathered['source']}; "
+          f"{len(records)} originals located"
+          + (f", {missing} missing" if missing else ""))
+    if not records:
+        print("none of the originals could be found - pass --images-root "
+              "pointing at the folder that holds your NEF files", file=sys.stderr)
+        return 1
+
+    shoots = len({pipeline.shoot_key(r) for r in records})
+    if shoots < 3:
+        print(f"only {shoots} shoot(s) - validation needs held-out weddings; "
+              f"results below will be unreliable", file=sys.stderr)
+
+    print(f"extracting features from {len(records)} frames "
+          f"({shoots} shoots, {args.jobs} workers)...")
+    data = pipeline.build_dataset(records, jobs=args.jobs,
+                                  progress=_progress("  reading"))
+    if data["n_dropped"]:
+        print(f"  {data['n_dropped']} frame(s) unreadable, skipped")
+
+    print("training...")
+    style = style_model.train(
+        data["matrix"], data["targets"], data["present"], data["groups"],
+        data["names"])
+    print()
+    print(style_model.render_report(style))
+
+    style_model.save(style, args.output)
+    print(f"\nmodel saved: {args.output}")
+    return 0
+
+
+def cmd_style_apply(args: argparse.Namespace) -> int:
+    from .style import model as style_model
+    from .style import pipeline
+    from .style import xmp as style_xmp
+
+    style = style_model.load(args.model)
+    print(f"predicting for {args.source} ...")
+    results = pipeline.predict_folder(args.source, style, jobs=args.jobs,
+                                      progress=_progress("  reading"))
+    if not results:
+        print("no readable images found", file=sys.stderr)
+        return 1
+
+    if args.dry_run:
+        shown = [p for p in style.models] + list(style.constants)[:3]
+        head = shown[:6]
+        print("  " + "file".ljust(28) + "".join(f"{n[:12]:>14}" for n in head))
+        for item in results[:20]:
+            row = "  " + os.path.basename(item["path"])[:28].ljust(28)
+            row += "".join(f"{item['settings'].get(n, 0):>14.2f}" for n in head)
+            print(row)
+        if len(results) > 20:
+            print(f"  ... and {len(results) - 20} more")
+        print(f"\n{len(results)} frame(s), nothing written (--dry-run)")
+        return 0
+
+    written, skipped = 0, 0
+    for item in results:
+        target = (os.path.join(args.output, os.path.splitext(
+                      os.path.basename(item["path"]))[0] + ".xmp")
+                  if args.output else style_xmp.sidecar_path(item["path"]))
+        try:
+            style_xmp.write_sidecar(target, item["settings"],
+                                    overwrite=args.overwrite)
+            written += 1
+        except FileExistsError:
+            skipped += 1
+
+    print(f"wrote {written} sidecar(s)"
+          + (f", skipped {skipped} that already had edits" if skipped else ""))
+    print("in Lightroom: import these files, or select them and use "
+          "Metadata > Read Metadata from File")
+    return 0
+
+
+def cmd_style_check_raw(args: argparse.Namespace) -> int:
+    """Prove a NEF can be decoded here before trusting a whole training run."""
+    from .style import features as style_features
+
+    image, meta = style_features.render_raw(args.file)
+    if image is None:
+        print(f"could not decode {args.file}: {meta.get('error')}", file=sys.stderr)
+        return 1
+    print(f"decoded {os.path.basename(args.file)}: "
+          f"{image.shape[1]}x{image.shape[0]} (half-size render)")
+    print(f"as-shot white balance  r/g={meta.get('wb_r', 0):.3f} "
+          f"b/g={meta.get('wb_b', 0):.3f}")
+    stats = style_features.image_stats(image)
+    print(f"median luma {stats['luma_p50']:.0f}, colour cast "
+          f"r/g={stats['cast_rg']:.3f} b/g={stats['cast_bg']:.3f}")
+    exif = style_features.exif_stats(args.file)
+    print(f"exif: ISO {exif['iso']:.0f}, f/{exif['aperture']:.1f}, "
+          f"{exif['focal']:.0f}mm, hour {exif['hour']:.1f}")
+    if exif["iso"] == 0:
+        print("  ! no EXIF read - check exifread is installed", file=sys.stderr)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="photoflow",
@@ -233,6 +373,49 @@ def build_parser() -> argparse.ArgumentParser:
                         "and full-length shots; 0 disables it, 3 digs harder")
     r.add_argument("-j", "--jobs", type=int, default=_default_jobs())
     r.set_defaults(func=cmd_retouch)
+
+    # ---- style ----
+    st = sub.add_parser("style", help="learn and apply your own Lightroom edits")
+    st_sub = st.add_subparsers(dest="style_command", required=True)
+
+    si = st_sub.add_parser(
+        "inspect",
+        help="survey an archive of edits before training anything on it")
+    si.add_argument("folder", nargs="?",
+                    help="folder of images with XMP sidecars")
+    si.add_argument("--catalog", help="path to a Lightroom .lrcat (read-only)")
+    si.add_argument("--limit", type=int,
+                    help="stop after this many records")
+    si.set_defaults(func=cmd_style_inspect)
+
+    sl = st_sub.add_parser("learn", help="train a model on your past edits")
+    sl.add_argument("folder", nargs="?", help="folder of images with XMP sidecars")
+    sl.add_argument("--catalog", help="path to a Lightroom .lrcat (read-only)")
+    sl.add_argument("--images-root",
+                    help="where the original files live, if the catalog paths "
+                         "no longer resolve (moved drive, other machine)")
+    sl.add_argument("-o", "--output", default="style.joblib")
+    sl.add_argument("--limit", type=int, help="cap the number of frames used")
+    sl.add_argument("-j", "--jobs", type=int, default=_default_jobs())
+    sl.set_defaults(func=cmd_style_learn)
+
+    sa = st_sub.add_parser("apply", help="predict settings for a new shoot")
+    sa.add_argument("source", help="folder of the new shoot")
+    sa.add_argument("--model", default="style.joblib")
+    sa.add_argument("-o", "--output",
+                    help="write sidecars here instead of next to the originals")
+    sa.add_argument("--dry-run", action="store_true",
+                    help="print predictions without writing anything")
+    sa.add_argument("--overwrite", action="store_true",
+                    help="replace existing sidecars (they hold your real edits)")
+    sa.add_argument("-j", "--jobs", type=int, default=_default_jobs())
+    sa.set_defaults(func=cmd_style_apply)
+
+    sc = st_sub.add_parser("check-raw",
+                           help="verify a single NEF decodes on this machine")
+    sc.add_argument("file")
+    sc.set_defaults(func=cmd_style_check_raw)
+
     return parser
 
 

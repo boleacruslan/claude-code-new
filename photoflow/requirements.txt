@@ -2,9 +2,15 @@
 #
 # mediapipe 1.x dropped the `solutions` API and ships no model weights, and
 # opencv 5.x no longer bundles the Haar cascade data. The pins below are the
-# last combination where face landmark models come inside the wheels, so the
-# tool runs completely offline with nothing to download.
+# last combination where face landmark models come inside the wheels, so
+# culling and retouching run completely offline with nothing to download.
 numpy<2
 opencv-python-headless==4.10.0.84
 mediapipe==0.10.21
 Pillow>=10.0
+
+# Only needed for `photoflow style` (learning your Lightroom edits).
+scikit-learn>=1.3
+joblib>=1.3
+exifread>=3.0          # EXIF straight out of NEF, which Pillow cannot read
+rawpy>=0.19            # neutral RAW render; skip it if you feed JPEGs instead
