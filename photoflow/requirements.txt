@@ -1,0 +1,10 @@
+# Versions are pinned deliberately.
+#
+# mediapipe 1.x dropped the `solutions` API and ships no model weights, and
+# opencv 5.x no longer bundles the Haar cascade data. The pins below are the
+# last combination where face landmark models come inside the wheels, so the
+# tool runs completely offline with nothing to download.
+numpy<2
+opencv-python-headless==4.10.0.84
+mediapipe==0.10.21
+Pillow>=10.0
